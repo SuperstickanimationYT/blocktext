@@ -6,12 +6,16 @@ const INPUT_BLOCK_OVER_SHADOW = 3;
 const BLOCK_HEIGHT = 48;
 const SCRIPT_GAP = 96;
 
-export function encode(scripts, { variables = {}, stageVariables = {}, broadcasts = {} } = {}) {
-  const encoder = new Encoder({ ...variables }, stageVariables, { ...broadcasts });
+export function encode(
+  scripts,
+  { variables = {}, stageVariables = {}, broadcasts = {}, procedures = {}, idPrefix = 'b', x = 0 } = {},
+) {
+  const encoder = new Encoder({ ...variables }, stageVariables, { ...broadcasts }, idPrefix);
+  for (const [proccode, procedure] of Object.entries(procedures)) encoder.procedures.set(proccode, procedure);
   for (const { define } of scripts) if (define) encoder.registerProcedure(define);
   let y = 0;
   for (const script of scripts) {
-    encoder.script(script, y);
+    encoder.script(script, { x, y });
     y += (countBlocks(script.body) + 1) * BLOCK_HEIGHT + SCRIPT_GAP;
   }
   return { blocks: encoder.blocks, variables: encoder.variables, broadcasts: encoder.broadcasts };
@@ -23,11 +27,12 @@ const countBlocks = (stack) =>
 const mutation = (fields) => ({ tagName: 'mutation', children: [], ...fields });
 
 class Encoder {
-  constructor(variables, stageVariables, broadcasts) {
+  constructor(variables, stageVariables, broadcasts, idPrefix) {
     this.blocks = {};
     this.variables = variables;
     this.stageVariables = stageVariables;
     this.broadcasts = broadcasts;
+    this.idPrefix = idPrefix;
     this.nextId = 1;
     this.procedures = new Map();
     this.scope = null;
@@ -35,7 +40,7 @@ class Encoder {
   }
 
   newId() {
-    return `b${this.nextId++}`;
+    return `${this.idPrefix}${this.nextId++}`;
   }
 
   registerProcedure({ proccode, params, warp, returns, color }) {
@@ -50,8 +55,8 @@ class Encoder {
     return this.procedures.get(proccode);
   }
 
-  script({ hat, define, body }, y) {
-    const position = { topLevel: true, x: 0, y };
+  script({ hat, define, body }, { x, y }) {
+    const position = { topLevel: true, x, y };
     if (define) return this.define(define, body, position);
     if (!hat) return this.stack(body, null, position);
     const hatId = this.block(hat, null, position);

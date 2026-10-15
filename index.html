@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Block Text</title>
+<meta name="description" content="Edit Scratch and PenguinMod projects as text, then save them back as blocks.">
+<link rel="stylesheet" href="app/style.css">
+</head>
+<body>
+
+<header class="bar">
+  <a class="back" href="/">&larr; All projects</a>
+  <h1>Block Text</h1>
+  <div class="actions">
+    <label class="button">
+      Open project
+      <input type="file" accept=".sb3,.pmp,.json" data-open hidden>
+    </label>
+    <button type="button" class="button primary" data-save disabled>Save project</button>
+  </div>
+</header>
+
+<main class="empty" data-empty>
+  <h2>Edit a Scratch or PenguinMod project as text</h2>
+  <p>Open an <code>.sb3</code> or <code>.pmp</code> file, or drop one anywhere on this page. Each sprite's scripts turn into text you can edit, and saving turns the text back into blocks.</p>
+  <p>Scripts that use blocks without a text form yet stay exactly as they are, and show in the list under the editor. Your file never leaves this browser, and saving downloads a new copy.</p>
+</main>
+
+<main class="workspace" data-workspace hidden>
+  <nav class="targets" aria-label="Sprites">
+    <p class="file-name" data-file-name></p>
+    <ul data-targets></ul>
+  </nav>
+  <section class="editor">
+    <textarea data-text spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Scripts as text"></textarea>
+    <p class="status" data-status role="status"></p>
+    <details class="kept" data-kept-panel>
+      <summary data-kept-summary></summary>
+      <ul data-kept></ul>
+    </details>
+  </section>
+</main>
+
+<script type="module" src="app/main.js"></script>
+</body>
+</html>

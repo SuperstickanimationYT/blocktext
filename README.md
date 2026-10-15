@@ -47,6 +47,12 @@ when flag_clicked:
 - `@color(...)` and `@defaults(...)` lines appear only when the color or the input defaults differ from the standard ones (`""`, `1`, `false`).
 - A call without backticks has to match a define in the same sprite. With backticks, it can call a block whose define is missing.
 
+## Web page
+
+`index.html` is a converter page with no build step: open an `.sb3`, `.pmp` or `project.json`, edit each sprite as text, and save a new copy. Scripts it can't show as text yet stay as they are. Comments attached to converted scripts become loose workspace comments. Everything runs in the browser.
+
+Deploy the repo root as a static site (no build step, no settings). All paths are relative, so it also works when proxied under a subpath such as `kmann.dev/apps/blocktext/`.
+
 ## API
 
 ```js
@@ -54,6 +60,17 @@ import { blocksToText, textToBlocks } from './src/index.js';
 
 const text = blocksToText(target.blocks);
 const { blocks, variables, broadcasts } = textToBlocks(text, { variables: target.variables, stageVariables, broadcasts });
+```
+
+To edit a sprite while keeping the scripts that can't be converted yet:
+
+```js
+import { applyText, openProjectFile, saveProjectFile, targetToText } from './src/index.js';
+
+const { project, entries } = await openProjectFile(bytes);
+const split = targetToText(target);
+const { blocks, variables, broadcasts, comments } = applyText(target, editedText, { convertedIds: split.convertedIds, stage });
+const file = await saveProjectFile(project, entries);
 ```
 
 ## Status

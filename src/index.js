@@ -6,6 +6,8 @@ import { print } from './print.js';
 export { decode, encode, parse, print };
 export { UnsupportedBlockError } from './decode.js';
 export { TextSyntaxError } from './parse.js';
+export { applyText, targetToText } from './project.js';
+export { openProjectFile, saveProjectFile } from './project-file.js';
 
 export const blocksToText = (blocks) => print(decode(blocks));
 export const textToBlocks = (text, names) => encode(parse(text), names);
