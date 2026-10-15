@@ -79,7 +79,7 @@ const file = await saveProjectFile(project, entries);
 
 ## Status
 
-About 90 blocks: events, motion, say/think, hide/show, size, costumes, layers, control (including stop, clones and PenguinMod's expandable if), operators and math functions, variables, lists and custom blocks. Blocks it doesn't support throw `UnsupportedBlockError`.
+About 80 blocks: events, motion, say/think, hide/show, size, costumes, layers, control (including stop, clones and PenguinMod's expandable if), operators and math functions, variables, lists and custom blocks. Blocks it doesn't support throw `UnsupportedBlockError`.
 
 Not yet supported: graphic effects, sound, pen, sensing beyond keys and timer, extensions, comments, script positions (scripts are re-stacked in a column), input reporters dragged outside their define, and variables with the same name as an input of the custom block using them.
 
