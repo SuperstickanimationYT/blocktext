@@ -26,6 +26,27 @@ when received("game over"):
 - `x = v` sets a variable and `x += v` changes it.
 - True/false slots accept any reporter or variable, as PenguinMod allows.
 
+## Custom blocks
+
+```
+@color("#4C97FF", "#4488e6", "#3d79cc")
+define warp `distance to %n %n`(x, y) -> string:
+    return x * x + y * y
+
+define reset():
+    x = 0
+
+when flag_clicked:
+    reset()
+    say(`distance to %n %n`(3, 4))
+```
+
+- The name is the exact block label, with `%s` (text), `%n` (number) and `%b` (true/false) where inputs go. It goes in backticks unless it's a plain identifier that isn't a built-in block name.
+- The names in parentheses name the inputs in order. Inside the define, they read the input, and `name = v` sets it (PenguinMod).
+- `warp` means run without screen refresh. `-> string` or `-> boolean` makes it a reporter (PenguinMod), which uses `return v`.
+- `@color(...)` and `@defaults(...)` lines appear only when the color or the input defaults differ from the standard ones (`""`, `1`, `false`).
+- A call without backticks has to match a define in the same sprite. With backticks, it can call a block whose define is missing.
+
 ## API
 
 ```js
@@ -37,9 +58,11 @@ const { blocks, variables, broadcasts } = textToBlocks(text, { variables: target
 
 ## Status
 
-About 50 core blocks (events, motion, say/think, control, operators, variables). Blocks it doesn't support throw `UnsupportedBlockError`.
+About 50 core blocks (events, motion, say/think, control, operators, variables) plus custom blocks. Blocks it doesn't support throw `UnsupportedBlockError`.
 
-Not yet supported: custom blocks (`procedures_*`), lists, menus, clones, looks/sound/pen, extensions, comments, script positions (scripts are re-stacked in a column).
+Not yet supported: lists, menus, clones, looks/sound/pen, extensions, comments, script positions (scripts are re-stacked in a column), input reporters dragged outside their define, and variables with the same name as an input of the custom block using them.
+
+Normalized on the way through (no effect on how a project runs): `"true"` vs `true` flags, numbers stored as JSON numbers, which shadow type a `%s` input uses, and malformed default lists.
 
 `node scripts/coverage.js <files.sb3|.pmp...>` reports how many scripts in real projects convert and round-trip cleanly, and which blocks are missing.
 
