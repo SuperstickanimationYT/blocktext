@@ -1,0 +1,12 @@
+{
+  "name": "blocktext",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Lossless 1:1 conversion between Scratch/PenguinMod blocks and an indentation-based text language",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "UNLICENSED"
+}
