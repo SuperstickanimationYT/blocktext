@@ -1,12 +1,16 @@
 import {
   ASSIGN_BY_SYMBOL,
   BLOCKS,
+  BUILTIN_NAMES,
   C_BLOCK_BY_NAME,
+  DEFAULT_PROCEDURE_COLOR,
   HAT_BY_NAME,
   INFIX_BY_SYMBOL,
+  KEYWORDS,
   REPORTER_BY_NAME,
   STATEMENT_BY_NAME,
-  KEYWORDS,
+  defaultArgument,
+  procedureSlots,
 } from './spec.js';
 
 export class TextSyntaxError extends Error {
@@ -22,13 +26,13 @@ const TOKEN_PATTERNS = [
   ['string', /"(?:[^"\\]|\\.)*"/y],
   ['quotedName', /`(?:[^`\\]|\\.)*`/y],
   ['name', /[A-Za-z_][A-Za-z0-9_]*/y],
-  ['symbol', /==|\+=|[-+*/%<>=(),:]/y],
+  ['symbol', /==|\+=|->|[-+*/%<>=(),:@]/y],
 ];
 
 const endsValue = (token) =>
   token &&
   (['number', 'string'].includes(token.type) ||
-    (token.type === 'name' && (token.quoted || !['and', 'or', 'not'].includes(token.value))) ||
+    (token.type === 'name' && (token.quoted || !['and', 'or', 'not', 'return'].includes(token.value))) ||
     (token.type === 'symbol' && token.value === ')'));
 
 export function tokenize(text) {
@@ -99,6 +103,8 @@ class Parser {
   constructor(tokens) {
     this.tokens = tokens;
     this.pos = 0;
+    this.scope = null;
+    this.unquotedCalls = [];
   }
 
   peek(offset = 0) {
@@ -135,22 +141,107 @@ class Parser {
   program() {
     const scripts = [];
     while (this.peek().type !== 'eof') scripts.push(this.script());
+    const defined = new Set(scripts.filter((script) => script.define).map((script) => script.define.proccode));
+    for (const { token, open, count } of this.unquotedCalls) {
+      if (!defined.has(token.value)) throw new TextSyntaxError(`unknown block ${JSON.stringify(token.value)}`, token);
+      if (count !== 0) throw argumentCountError(token.value, 0, open);
+    }
     return scripts;
   }
 
   script() {
+    const decorators = this.decorators();
     const token = this.next();
+    if (this.isKeyword('define', token)) return this.define(decorators);
+    if (Object.keys(decorators).length > 0) throw new TextSyntaxError('@ lines only go above a define', token);
     if (this.isKeyword('stack', token)) {
       this.endHeader();
       return { hat: null, body: this.body() };
     }
-    if (!this.isKeyword('when', token)) throw new TextSyntaxError('a script starts with "when ...:" or "stack:"', token);
+    if (!this.isKeyword('when', token)) throw new TextSyntaxError('a script starts with "when ...:", "define ...:" or "stack:"', token);
     const nameToken = this.expect('name');
     const opcode = HAT_BY_NAME[nameToken.value];
     if (!opcode) throw new TextSyntaxError(`unknown event ${JSON.stringify(nameToken.value)}`, nameToken);
     const hat = this.call(opcode, { isHeader: true });
     this.endHeader();
     return { hat, body: this.body() };
+  }
+
+  decorators() {
+    const decorators = {};
+    while (this.isSymbol('@')) {
+      this.next();
+      const name = this.expect('name');
+      if (!['color', 'defaults'].includes(name.value)) throw new TextSyntaxError(`unknown @${name.value}; use @color or @defaults`, name);
+      if (decorators[name.value]) throw new TextSyntaxError(`@${name.value} appears twice`, name);
+      this.expect('symbol', '(');
+      const values = [];
+      while (!this.isSymbol(')')) {
+        if (values.length > 0) this.expect('symbol', ',');
+        values.push(this.expect('string').value);
+      }
+      this.next();
+      this.expect('newline');
+      decorators[name.value] = { values, token: name };
+    }
+    return decorators;
+  }
+
+  define(decorators) {
+    const warp = this.isKeyword('warp') && !this.isSymbol('(', this.peek(1));
+    if (warp) this.next();
+    const nameToken = this.expect('name');
+    const proccode = nameToken.value;
+    if (!nameToken.quoted && (BUILTIN_NAMES.has(proccode) || KEYWORDS.has(proccode))) {
+      throw new TextSyntaxError(`"${proccode}" is already a block; name it \`${proccode}\``, nameToken);
+    }
+    const params = this.paramNames();
+    const slots = procedureSlots(proccode);
+    if (params.length !== slots.length) {
+      throw new TextSyntaxError(`the label has ${slots.length} inputs (%s, %n, %b) but ${params.length} names`, nameToken);
+    }
+
+    let returns = null;
+    if (this.isSymbol('->')) {
+      this.next();
+      const type = this.expect('name');
+      if (!['string', 'boolean'].includes(type.value)) throw new TextSyntaxError('a custom reporter returns string or boolean', type);
+      returns = type.value;
+    }
+    this.endHeader();
+
+    const defaults = decorators.defaults?.values ?? slots.map(defaultArgument);
+    if (defaults.length !== slots.length) {
+      throw new TextSyntaxError(`@defaults needs ${slots.length} values`, decorators.defaults.token);
+    }
+    const color = decorators.color?.values ?? DEFAULT_PROCEDURE_COLOR;
+
+    this.scope = new Map(params.map((name, index) => [name, slots[index]]));
+    const body = this.body();
+    this.scope = null;
+    const define = {
+      proccode,
+      params,
+      warp,
+      returns,
+      color: sameList(color, DEFAULT_PROCEDURE_COLOR) ? null : color,
+      defaults: sameList(defaults, slots.map(defaultArgument)) ? null : defaults,
+    };
+    return { define, body };
+  }
+
+  paramNames() {
+    this.expect('symbol', '(');
+    const names = [];
+    while (!this.isSymbol(')')) {
+      if (names.length > 0) this.expect('symbol', ',');
+      const token = this.expect('name');
+      if (!token.quoted && KEYWORDS.has(token.value)) throw new TextSyntaxError(`quote an input named ${token.value} as \`${token.value}\``, token);
+      if (names.includes(token.value)) throw new TextSyntaxError(`input ${JSON.stringify(token.value)} appears twice`, token);
+      names.push(token.value);
+    }
+    this.next();
+    return names;
   }
 
   body() {
@@ -180,7 +271,21 @@ class Parser {
       return node('control_if_else', { CONDITION: condition }, [then, this.body()]);
     }
 
+    if (this.isKeyword('return', token)) {
+      const value = this.slot('text');
+      this.expect('newline');
+      return node('procedures_return', { return: value });
+    }
+    if (!token.quoted && KEYWORDS.has(token.value)) throw new TextSyntaxError(`unexpected "${token.value}"`, token);
+
     const assignOpcode = this.peek().type === 'symbol' && ASSIGN_BY_SYMBOL[this.peek().value];
+    if (assignOpcode && this.scope?.has(token.value)) {
+      if (assignOpcode !== 'data_setvariableto') throw new TextSyntaxError('custom block inputs can only be set with =', this.peek());
+      this.next();
+      const value = this.slot('text');
+      this.expect('newline');
+      return node('procedures_set', { PARAM: { kind: 'argument', name: token.value }, VALUE: value });
+    }
     if (assignOpcode) {
       this.next();
       const value = this.slot(BLOCKS[assignOpcode].params[1].slot);
@@ -196,10 +301,25 @@ class Parser {
     }
 
     const opcode = !token.quoted && STATEMENT_BY_NAME[token.value];
-    if (!opcode) throw new TextSyntaxError(`unknown block ${JSON.stringify(token.value)}`, token);
-    const statement = this.call(opcode, { isHeader: false });
+    if (!opcode && !this.isSymbol('(')) throw new TextSyntaxError(`unknown block ${JSON.stringify(token.value)}`, token);
+    const statement = opcode ? this.call(opcode, { isHeader: false }) : this.customCall(token);
     this.expect('newline');
     return statement;
+  }
+
+  customCall(nameToken) {
+    const proccode = nameToken.value;
+    const slots = procedureSlots(proccode);
+    const open = this.expect('symbol', '(');
+    const args = [];
+    while (!this.isSymbol(')')) {
+      if (args.length > 0) this.expect('symbol', ',');
+      args.push(this.slot(slots[args.length] ?? 'text'));
+    }
+    this.next();
+    if (nameToken.quoted && args.length !== slots.length) throw argumentCountError(proccode, slots.length, open);
+    if (!nameToken.quoted) this.unquotedCalls.push({ token: nameToken, open, count: args.length });
+    return { kind: 'block', opcode: 'procedures_call', proccode, args, substacks: [] };
   }
 
   call(opcode, { isHeader }) {
@@ -210,15 +330,12 @@ class Parser {
     const open = this.expect('symbol', '(');
     spec.params.forEach((param, index) => {
       if (index > 0) {
-        if (!this.isSymbol(',')) throw new TextSyntaxError(`${spec.name} takes ${spec.params.length} arguments`, open);
+        if (!this.isSymbol(',')) throw argumentCountError(spec.name, spec.params.length, open);
         this.next();
       }
       args[param.name] = param.kind === 'field' ? this.expect('string').value : this.slot(param.slot);
     });
-    if (!this.isSymbol(')')) {
-      const count = spec.params.length;
-      throw new TextSyntaxError(`${spec.name} takes ${count} argument${count === 1 ? '' : 's'}`, open);
-    }
+    if (!this.isSymbol(')')) throw argumentCountError(spec.name, spec.params.length, open);
     this.next();
     return node(opcode, args);
   }
@@ -298,12 +415,19 @@ class Parser {
     if (!token.quoted && KEYWORDS.has(token.value)) {
       throw new TextSyntaxError(`"${token.value}" is a keyword; quote a variable with that name as \`${token.value}\``, token);
     }
-    if (token.quoted || !this.isSymbol('(')) return { kind: 'variable', name: token.value };
-    const opcode = REPORTER_BY_NAME[token.value];
-    if (!opcode) throw new TextSyntaxError(`unknown reporter ${JSON.stringify(token.value)}`, token);
-    return this.call(opcode, { isHeader: false });
+    if (this.isSymbol('(')) {
+      const opcode = !token.quoted && REPORTER_BY_NAME[token.value];
+      return opcode ? this.call(opcode, { isHeader: false }) : this.customCall(token);
+    }
+    if (this.scope?.has(token.value)) return { kind: 'argument', name: token.value };
+    return { kind: 'variable', name: token.value };
   }
 }
+
+const sameList = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+const argumentCountError = (name, count, token) =>
+  new TextSyntaxError(`${name} takes ${count} argument${count === 1 ? '' : 's'}`, token);
 
 function infix(opcode, left, right, start) {
   const spec = BLOCKS[opcode];

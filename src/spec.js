@@ -82,6 +82,14 @@ export const BLOCKS = {
   operator_multiply: { shape: 'infix', symbol: '*', precedence: 6, operand: 'number', result: 'reporter' },
   operator_divide: { shape: 'infix', symbol: '/', precedence: 6, operand: 'number', result: 'reporter' },
   operator_mod: { shape: 'infix', symbol: '%', precedence: 6, operand: 'number', result: 'reporter' },
+
+  procedures_definition: { shape: 'define', params: [] },
+  procedures_definition_return: { shape: 'define', params: [] },
+  procedures_call: { shape: 'call', params: [] },
+  procedures_return: { shape: 'return', params: [input('return', 'text')] },
+  procedures_set: { shape: 'set_argument', params: [input('PARAM', 'argument'), input('VALUE', 'text')] },
+  argument_reporter_string_number: { shape: 'argument', params: [] },
+  argument_reporter_boolean: { shape: 'argument', params: [] },
 };
 
 const NON_ASSOCIATIVE_PRECEDENCE = 4;
@@ -111,4 +119,14 @@ export const REPORTER_BY_NAME = indexBy(['reporter'], 'name');
 export const ASSIGN_BY_SYMBOL = indexBy(['assign'], 'symbol');
 export const INFIX_BY_SYMBOL = indexBy(['infix'], 'symbol');
 
-export const KEYWORDS = new Set(['when', 'stack', 'if', 'else', 'pass', 'and', 'or', 'not', '_']);
+export const KEYWORDS = new Set(['when', 'stack', 'define', 'return', 'if', 'else', 'pass', 'and', 'or', 'not', '_']);
+export const BUILTIN_NAMES = new Set(Object.values(BLOCKS).map((spec) => spec.name).filter(Boolean));
+
+export const STATEMENT_SHAPES = new Set(['stack', 'c', 'if', 'assign', 'call', 'return', 'set_argument']);
+
+export const DEFAULT_PROCEDURE_COLOR = ['#FF6680', '#FF4D6A', '#FF3355'];
+export const ARGUMENT_OPCODES = { text: 'argument_reporter_string_number', number: 'argument_reporter_string_number', boolean: 'argument_reporter_boolean' };
+const PROCEDURE_SLOT_TYPES = { '%s': 'text', '%n': 'number', '%b': 'boolean' };
+export const procedureSlots = (proccode) => (proccode.match(/%[snb]/g) ?? []).map((token) => PROCEDURE_SLOT_TYPES[token]);
+const STANDARD_DEFAULTS = { text: '', number: '1', boolean: 'false' };
+export const defaultArgument = (slot) => STANDARD_DEFAULTS[slot];
