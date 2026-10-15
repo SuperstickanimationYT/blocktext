@@ -1,0 +1,114 @@
+export const PRIMITIVE_CODES = {
+  number: 4,
+  positive: 5,
+  whole: 6,
+  integer: 7,
+  angle: 8,
+  text: 10,
+  broadcast: 11,
+};
+export const VARIABLE_CODE = 12;
+
+const input = (name, slot) => ({ kind: 'input', name, slot });
+const field = (name, holds = 'string') => ({ kind: 'field', name, holds });
+
+export const BLOCKS = {
+  event_whenflagclicked: { shape: 'hat', name: 'flag_clicked', params: [] },
+  event_whenkeypressed: { shape: 'hat', name: 'key_pressed', params: [field('KEY_OPTION')] },
+  event_whenbroadcastreceived: {
+    shape: 'hat',
+    name: 'received',
+    params: [field('BROADCAST_OPTION', 'broadcast')],
+  },
+
+  motion_movesteps: { shape: 'stack', name: 'move', params: [input('STEPS', 'number')] },
+  motion_turnright: { shape: 'stack', name: 'turn_right', params: [input('DEGREES', 'number')] },
+  motion_turnleft: { shape: 'stack', name: 'turn_left', params: [input('DEGREES', 'number')] },
+  motion_gotoxy: { shape: 'stack', name: 'go_to_xy', params: [input('X', 'number'), input('Y', 'number')] },
+  motion_pointindirection: { shape: 'stack', name: 'point_in_direction', params: [input('DIRECTION', 'angle')] },
+  motion_changexby: { shape: 'stack', name: 'change_x', params: [input('DX', 'number')] },
+  motion_setx: { shape: 'stack', name: 'set_x', params: [input('X', 'number')] },
+  motion_changeyby: { shape: 'stack', name: 'change_y', params: [input('DY', 'number')] },
+  motion_sety: { shape: 'stack', name: 'set_y', params: [input('Y', 'number')] },
+  looks_say: { shape: 'stack', name: 'say', params: [input('MESSAGE', 'text')] },
+  looks_sayforsecs: { shape: 'stack', name: 'say_for', params: [input('MESSAGE', 'text'), input('SECS', 'number')] },
+  looks_think: { shape: 'stack', name: 'think', params: [input('MESSAGE', 'text')] },
+  control_wait: { shape: 'stack', name: 'wait', params: [input('DURATION', 'positive')] },
+  control_wait_until: { shape: 'stack', name: 'wait_until', params: [input('CONDITION', 'boolean')] },
+  event_broadcast: { shape: 'stack', name: 'broadcast', params: [input('BROADCAST_INPUT', 'broadcast')] },
+  event_broadcastandwait: {
+    shape: 'stack',
+    name: 'broadcast_and_wait',
+    params: [input('BROADCAST_INPUT', 'broadcast')],
+  },
+  data_setvariableto: {
+    shape: 'assign',
+    symbol: '=',
+    params: [field('VARIABLE', 'variable'), input('VALUE', 'text')],
+  },
+  data_changevariableby: {
+    shape: 'assign',
+    symbol: '+=',
+    params: [field('VARIABLE', 'variable'), input('VALUE', 'number')],
+  },
+
+  control_forever: { shape: 'c', name: 'forever', params: [], substacks: ['SUBSTACK'] },
+  control_repeat: { shape: 'c', name: 'repeat', params: [input('TIMES', 'whole')], substacks: ['SUBSTACK'] },
+  control_repeat_until: {
+    shape: 'c',
+    name: 'repeat_until',
+    params: [input('CONDITION', 'boolean')],
+    substacks: ['SUBSTACK'],
+  },
+  control_if: { shape: 'if', params: [input('CONDITION', 'boolean')], substacks: ['SUBSTACK'] },
+  control_if_else: { shape: 'if', params: [input('CONDITION', 'boolean')], substacks: ['SUBSTACK', 'SUBSTACK2'] },
+
+  motion_xposition: { shape: 'reporter', name: 'x_position', params: [] },
+  motion_yposition: { shape: 'reporter', name: 'y_position', params: [] },
+  motion_direction: { shape: 'reporter', name: 'direction', params: [] },
+  sensing_timer: { shape: 'reporter', name: 'timer', params: [] },
+  operator_join: { shape: 'reporter', name: 'join', params: [input('STRING1', 'text'), input('STRING2', 'text')] },
+  operator_length: { shape: 'reporter', name: 'length', params: [input('STRING', 'text')] },
+  operator_random: { shape: 'reporter', name: 'random', params: [input('FROM', 'number'), input('TO', 'number')] },
+
+  operator_or: { shape: 'infix', symbol: 'or', precedence: 1, operand: 'boolean', result: 'boolean' },
+  operator_and: { shape: 'infix', symbol: 'and', precedence: 2, operand: 'boolean', result: 'boolean' },
+  operator_not: { shape: 'prefix', symbol: 'not', precedence: 3, params: [input('OPERAND', 'boolean')] },
+  operator_lt: { shape: 'infix', symbol: '<', precedence: 4, operand: 'text', result: 'boolean' },
+  operator_gt: { shape: 'infix', symbol: '>', precedence: 4, operand: 'text', result: 'boolean' },
+  operator_equals: { shape: 'infix', symbol: '==', precedence: 4, operand: 'text', result: 'boolean' },
+  operator_add: { shape: 'infix', symbol: '+', precedence: 5, operand: 'number', result: 'reporter' },
+  operator_subtract: { shape: 'infix', symbol: '-', precedence: 5, operand: 'number', result: 'reporter' },
+  operator_multiply: { shape: 'infix', symbol: '*', precedence: 6, operand: 'number', result: 'reporter' },
+  operator_divide: { shape: 'infix', symbol: '/', precedence: 6, operand: 'number', result: 'reporter' },
+  operator_mod: { shape: 'infix', symbol: '%', precedence: 6, operand: 'number', result: 'reporter' },
+};
+
+const NON_ASSOCIATIVE_PRECEDENCE = 4;
+export const isNonAssociative = (spec) => spec.precedence === NON_ASSOCIATIVE_PRECEDENCE;
+
+const OPERAND_INPUTS = {
+  number: ['NUM1', 'NUM2'],
+  text: ['OPERAND1', 'OPERAND2'],
+  boolean: ['OPERAND1', 'OPERAND2'],
+};
+for (const spec of Object.values(BLOCKS)) {
+  if (spec.shape === 'infix') spec.params = OPERAND_INPUTS[spec.operand].map((name) => input(name, spec.operand));
+  spec.substacks ??= [];
+}
+
+const indexBy = (shapes, key) =>
+  Object.fromEntries(
+    Object.entries(BLOCKS)
+      .filter(([, spec]) => shapes.includes(spec.shape))
+      .map(([opcode, spec]) => [spec[key], opcode]),
+  );
+
+export const HAT_BY_NAME = indexBy(['hat'], 'name');
+export const STATEMENT_BY_NAME = indexBy(['stack'], 'name');
+export const C_BLOCK_BY_NAME = indexBy(['c'], 'name');
+export const REPORTER_BY_NAME = indexBy(['reporter'], 'name');
+export const ASSIGN_BY_SYMBOL = indexBy(['assign'], 'symbol');
+export const INFIX_BY_SYMBOL = indexBy(['infix'], 'symbol');
+
+export const KEYWORDS = new Set(['when', 'stack', 'if', 'else', 'pass', 'and', 'or', 'not', '_']);
