@@ -1,4 +1,4 @@
-import { ARGUMENT_OPCODES, BLOCKS, PRIMITIVE_CODES, VARIABLE_CODE, defaultArgument, procedureSlots } from './spec.js';
+import { ARGUMENT_OPCODES, BLOCKS, LIST_CODE, PRIMITIVE_CODES, VARIABLE_CODE, defaultArgument, procedureSlots } from './spec.js';
 
 const INPUT_SHADOW_ONLY = 1;
 const INPUT_BLOCK_NO_SHADOW = 2;
@@ -8,9 +8,21 @@ const SCRIPT_GAP = 96;
 
 export function encode(
   scripts,
-  { variables = {}, stageVariables = {}, broadcasts = {}, procedures = {}, idPrefix = 'b', x = 0 } = {},
+  {
+    variables = {},
+    stageVariables = {},
+    lists = {},
+    stageLists = {},
+    broadcasts = {},
+    procedures = {},
+    idPrefix = 'b',
+    x = 0,
+  } = {},
 ) {
-  const encoder = new Encoder({ ...variables }, stageVariables, { ...broadcasts }, idPrefix);
+  const encoder = new Encoder(
+    { variables: { ...variables }, stageVariables, lists: { ...lists }, stageLists, broadcasts: { ...broadcasts } },
+    idPrefix,
+  );
   for (const [proccode, procedure] of Object.entries(procedures)) encoder.procedures.set(proccode, procedure);
   for (const { define } of scripts) if (define) encoder.registerProcedure(define);
   let y = 0;
@@ -18,7 +30,8 @@ export function encode(
     encoder.script(script, { x, y });
     y += (countBlocks(script.body) + 1) * BLOCK_HEIGHT + SCRIPT_GAP;
   }
-  return { blocks: encoder.blocks, variables: encoder.variables, broadcasts: encoder.broadcasts };
+  const { blocks, variables: newVariables, lists: newLists, broadcasts: newBroadcasts } = encoder;
+  return { blocks, variables: newVariables, lists: newLists, broadcasts: newBroadcasts };
 }
 
 const countBlocks = (stack) =>
@@ -27,10 +40,12 @@ const countBlocks = (stack) =>
 const mutation = (fields) => ({ tagName: 'mutation', children: [], ...fields });
 
 class Encoder {
-  constructor(variables, stageVariables, broadcasts, idPrefix) {
+  constructor({ variables, stageVariables, lists, stageLists, broadcasts }, idPrefix) {
     this.blocks = {};
     this.variables = variables;
     this.stageVariables = stageVariables;
+    this.lists = lists;
+    this.stageLists = stageLists;
     this.broadcasts = broadcasts;
     this.idPrefix = idPrefix;
     this.nextId = 1;
@@ -145,16 +160,21 @@ class Encoder {
       this.fillCall(block, id, node, inExpression);
       return id;
     }
+    if (node.opcode === 'control_expandableIf') {
+      this.fillExpandableIf(block, id, node);
+      return id;
+    }
     const spec = BLOCKS[node.opcode];
     for (const param of spec.params) {
       const arg = node.args[param.name];
       if (param.kind === 'field') {
         block.fields[param.name] = this.field(arg, param.holds);
       } else {
-        const input = this.input(arg, param.slot, id);
+        const input = this.input(arg, param.slot, id, param.menu);
         if (input) block.inputs[param.name] = input;
       }
     }
+    if (spec.mutation) block.mutation = mutation(spec.mutation(node.args));
     spec.substacks.forEach((name, index) => {
       const firstId = this.stack(node.substacks[index], id);
       if (firstId) block.inputs[name] = [INPUT_BLOCK_NO_SHADOW, firstId];
@@ -177,24 +197,67 @@ class Encoder {
     });
   }
 
+  fillExpandableIf(block, id, { conditions, endsInElse, substacks }) {
+    conditions.forEach((condition, index) => {
+      if (condition.kind === 'empty') return;
+      block.inputs[`BOOL${index + 1}`] =
+        condition.kind === 'checkbox'
+          ? [INPUT_SHADOW_ONLY, this.checkboxShadow(condition.value, id)]
+          : [INPUT_BLOCK_OVER_SHADOW, this.reporter(condition, id), this.checkboxShadow(false, id)];
+    });
+    substacks.forEach((stack, index) => {
+      const firstId = this.stack(stack, id);
+      if (firstId) block.inputs[`SUBSTACK${index + 1}`] = [INPUT_BLOCK_NO_SHADOW, firstId];
+    });
+    block.mutation = mutation({ branches: String(substacks.length), 'ends-in-else': String(endsInElse) });
+  }
+
   field(value, holds) {
     if (holds === 'variable') return [value, this.variableId(value)];
+    if (holds === 'list') return [value, this.listId(value)];
     if (holds === 'broadcast') return [value, this.broadcastId(value)];
     return [value, null];
   }
 
-  input(expr, slot, parentId) {
+  input(expr, slot, parentId, menu) {
     if (expr.kind === 'empty') return null;
+    if (expr.kind === 'checkbox') return [INPUT_SHADOW_ONLY, this.checkboxShadow(expr.value, parentId)];
+    if (expr.kind === 'literal' && menu) return [INPUT_SHADOW_ONLY, this.menuShadow(menu, expr.value, parentId)];
     if (expr.kind === 'literal') return [INPUT_SHADOW_ONLY, this.primitive(slot, expr.value)];
-    const value =
-      expr.kind === 'variable' ? this.variableReporter(expr.name) : this.block(expr, parentId, undefined, true);
+    const value = this.reporter(expr, parentId);
     if (slot === 'boolean' || slot === 'argument') return [INPUT_BLOCK_NO_SHADOW, value];
-    const obscuredShadow = this.primitive(slot, slot === 'broadcast' ? this.anyBroadcastName() : '');
+    const obscuredShadow = menu
+      ? this.menuShadow(menu, menu.fallback, parentId)
+      : this.primitive(slot, slot === 'broadcast' ? this.anyBroadcastName() : '');
     return [INPUT_BLOCK_OVER_SHADOW, value, obscuredShadow];
   }
 
-  variableReporter(name) {
-    return [VARIABLE_CODE, name, this.variableId(name)];
+  reporter(expr, parentId) {
+    if (expr.kind === 'variable') return [VARIABLE_CODE, expr.name, this.variableId(expr.name)];
+    if (expr.kind === 'list') return [LIST_CODE, expr.name, this.listId(expr.name)];
+    return this.block(expr, parentId, undefined, true);
+  }
+
+  shadowBlock(opcode, fields, parentId) {
+    const id = this.newId();
+    this.blocks[id] = { opcode, next: null, parent: parentId, inputs: {}, fields, shadow: true, topLevel: false };
+    return id;
+  }
+
+  menuShadow(menu, value, parentId) {
+    return this.shadowBlock(menu.opcode, { [menu.field]: [value, null] }, parentId);
+  }
+
+  checkboxShadow(checked, parentId) {
+    return this.shadowBlock('checkbox', { CHECKBOX: [checked ? 'TRUE' : 'FALSE', null] }, parentId);
+  }
+
+  listId(name) {
+    const existing = findIdByName(this.lists, name) ?? findIdByName(this.stageLists, name);
+    if (existing) return existing;
+    const id = `list-${name}-${Object.keys(this.lists).length}`;
+    this.lists[id] = [name, []];
+    return id;
   }
 
   primitive(slot, value) {

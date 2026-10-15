@@ -7,10 +7,12 @@ import {
   HAT_BY_NAME,
   INFIX_BY_SYMBOL,
   KEYWORDS,
+  LIST_REPORTER_NAME,
   REPORTER_BY_NAME,
   STATEMENT_BY_NAME,
   defaultArgument,
   procedureSlots,
+  variantValue,
 } from './spec.js';
 
 export class TextSyntaxError extends Error {
@@ -32,7 +34,7 @@ const TOKEN_PATTERNS = [
 const endsValue = (token) =>
   token &&
   (['number', 'string'].includes(token.type) ||
-    (token.type === 'name' && (token.quoted || !['and', 'or', 'not', 'return'].includes(token.value))) ||
+    (token.type === 'name' && (token.quoted || !['and', 'or', 'not', 'return', 'if', 'elif'].includes(token.value))) ||
     (token.type === 'symbol' && token.value === ')'));
 
 export function tokenize(text) {
@@ -162,7 +164,7 @@ class Parser {
     const nameToken = this.expect('name');
     const opcode = HAT_BY_NAME[nameToken.value];
     if (!opcode) throw new TextSyntaxError(`unknown event ${JSON.stringify(nameToken.value)}`, nameToken);
-    const hat = this.call(opcode, { isHeader: true });
+    const hat = this.call(opcode, nameToken.value, { isHeader: true });
     this.endHeader();
     return { hat, body: this.body() };
   }
@@ -261,10 +263,15 @@ class Parser {
     if (token.type !== 'name') throw new TextSyntaxError('expected a block', token);
     if (this.isKeyword('pass', token)) throw new TextSyntaxError('"pass" only fills an otherwise empty block', token);
 
+    if (this.isKeyword('if', token) && this.isAttachedPlus(token)) {
+      this.next();
+      return this.expandableIf();
+    }
     if (this.isKeyword('if', token)) {
       const condition = this.slot('boolean');
       this.endHeader();
       const then = this.body();
+      if (this.isKeyword('elif')) throw new TextSyntaxError('elif only follows if+ (the expandable if block)', this.peek());
       if (!this.isKeyword('else')) return node('control_if', { CONDITION: condition }, [then]);
       this.next();
       this.endHeader();
@@ -295,16 +302,38 @@ class Parser {
 
     const cOpcode = !token.quoted && C_BLOCK_BY_NAME[token.value];
     if (cOpcode) {
-      const header = this.call(cOpcode, { isHeader: true });
+      const header = this.call(cOpcode, token.value, { isHeader: true });
       this.endHeader();
       return { ...header, substacks: [this.body()] };
     }
 
     const opcode = !token.quoted && STATEMENT_BY_NAME[token.value];
     if (!opcode && !this.isSymbol('(')) throw new TextSyntaxError(`unknown block ${JSON.stringify(token.value)}`, token);
-    const statement = opcode ? this.call(opcode, { isHeader: false }) : this.customCall(token);
+    const statement = opcode ? this.call(opcode, token.value, { isHeader: false }) : this.customCall(token);
     this.expect('newline');
     return statement;
+  }
+
+  isAttachedPlus(ifToken) {
+    const plus = this.peek();
+    return this.isSymbol('+', plus) && plus.line === ifToken.line && plus.col === ifToken.col + ifToken.value.length;
+  }
+
+  expandableIf() {
+    const conditions = [];
+    const substacks = [];
+    do {
+      conditions.push(this.slot('boolean'));
+      this.endHeader();
+      substacks.push(this.body());
+    } while (this.isKeyword('elif') && this.next());
+    const endsInElse = this.isKeyword('else');
+    if (endsInElse) {
+      this.next();
+      this.endHeader();
+      substacks.push(this.body());
+    }
+    return { kind: 'block', opcode: 'control_expandableIf', conditions, endsInElse, substacks };
   }
 
   customCall(nameToken) {
@@ -322,22 +351,30 @@ class Parser {
     return { kind: 'block', opcode: 'procedures_call', proccode, args, substacks: [] };
   }
 
-  call(opcode, { isHeader }) {
+  call(opcode, name, { isHeader }) {
     const spec = BLOCKS[opcode];
-    const args = {};
-    if (spec.params.length === 0 && isHeader && !this.isSymbol('(')) return node(opcode, args);
+    const args = spec.variants ? { [spec.variants.param]: variantValue(spec, name) } : {};
+    const params = spec.params.filter((param) => param.name !== spec.variants?.param);
+    if (params.length === 0 && isHeader && !this.isSymbol('(')) return node(opcode, args);
 
     const open = this.expect('symbol', '(');
-    spec.params.forEach((param, index) => {
+    params.forEach((param, index) => {
       if (index > 0) {
-        if (!this.isSymbol(',')) throw argumentCountError(spec.name, spec.params.length, open);
+        if (!this.isSymbol(',')) throw argumentCountError(name, params.length, open);
         this.next();
       }
       args[param.name] = param.kind === 'field' ? this.expect('string').value : this.slot(param.slot);
     });
-    if (!this.isSymbol(')')) throw argumentCountError(spec.name, spec.params.length, open);
+    if (!this.isSymbol(')')) throw argumentCountError(name, params.length, open);
     this.next();
     return node(opcode, args);
+  }
+
+  listReporter() {
+    this.expect('symbol', '(');
+    const name = this.expect('string').value;
+    this.expect('symbol', ')');
+    return { kind: 'list', name };
   }
 
   slot(slot) {
@@ -412,12 +449,14 @@ class Parser {
     }
     if (token.type !== 'name') throw new TextSyntaxError(`expected a value but found ${JSON.stringify(token.value ?? token.type)}`, token);
     if (this.isKeyword('_', token)) return { kind: 'empty' };
+    if (this.isKeyword('true', token) || this.isKeyword('false', token)) return { kind: 'checkbox', value: token.value === 'true' };
     if (!token.quoted && KEYWORDS.has(token.value)) {
       throw new TextSyntaxError(`"${token.value}" is a keyword; quote a variable with that name as \`${token.value}\``, token);
     }
     if (this.isSymbol('(')) {
+      if (!token.quoted && token.value === LIST_REPORTER_NAME) return this.listReporter();
       const opcode = !token.quoted && REPORTER_BY_NAME[token.value];
-      return opcode ? this.call(opcode, { isHeader: false }) : this.customCall(token);
+      return opcode ? this.call(opcode, token.value, { isHeader: false }) : this.customCall(token);
     }
     if (this.scope?.has(token.value)) return { kind: 'argument', name: token.value };
     return { kind: 'variable', name: token.value };
@@ -442,5 +481,7 @@ function checkSlot(expr, slot, token) {
     if (expr.kind === 'literal') throw new TextSyntaxError('a true/false slot takes a condition or reporter, not a plain value', token);
   } else if (expr.kind === 'empty') {
     throw new TextSyntaxError('_ only fills true/false slots; use "" for an empty value', token);
+  } else if (expr.kind === 'checkbox') {
+    throw new TextSyntaxError(`${expr.value} only fills true/false slots; use "${expr.value}" for text`, token);
   }
 }

@@ -62,7 +62,7 @@ test('calls to a kept custom block reuse its argument ids', () => {
     mutation: { tagName: 'mutation', children: [], proccode: 'hop %s', argumentids: '["argX"]', argumentnames: '["h"]', argumentdefaults: '[""]', warp: 'false' },
   };
   target.blocks.rep = { opcode: 'argument_reporter_string_number', next: null, parent: 'proto', inputs: {}, fields: { VALUE: ['h', null] }, shadow: true, topLevel: false };
-  target.blocks.hide2 = { opcode: 'looks_hide', next: null, parent: 'def', inputs: {}, fields: {}, shadow: false, topLevel: false };
+  target.blocks.hide2 = { opcode: 'pen_clear', next: null, parent: 'def', inputs: {}, fields: {}, shadow: false, topLevel: false };
 
   const split = targetToText(target);
   const result = applyText(target, 'when flag_clicked:\n    `hop %s`(3)\n', { ...split, stage });

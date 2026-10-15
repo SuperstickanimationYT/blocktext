@@ -24,7 +24,11 @@ when received("game over"):
 - Variable names that aren't plain identifiers (or clash with keywords) go in backticks: `` `my speed` ``.
 - Operators: `+ - * / %`, `< > ==`, `and or not`. Scratch nesting is kept with parentheses.
 - `x = v` sets a variable and `x += v` changes it.
-- True/false slots accept any reporter or variable, as PenguinMod allows.
+- True/false slots accept any reporter or variable, as PenguinMod allows. PenguinMod's checkbox values are `true` and `false`.
+- Lists are named with strings: `add_to_list(item, "enemies")`, `item_of_list(1, "enemies")`. `list("enemies")` reports the whole list.
+- Menus take strings: `create_clone_of("_myself_")`, `switch_costume("idle")`, `is_key_pressed("space")`. A reporter can replace the string.
+- Blocks with a dropdown that changes what they do get one name per option: `abs(x)`, `floor(x)`, `e_pow(x)`, `go_to_front()`, `costume_name()`.
+- PenguinMod's expandable if starts with `if+`, then any number of `elif` and an optional `else`. A plain `if` / `else` is Scratch's if block.
 
 ## Custom blocks
 
@@ -75,9 +79,9 @@ const file = await saveProjectFile(project, entries);
 
 ## Status
 
-About 50 core blocks (events, motion, say/think, control, operators, variables) plus custom blocks. Blocks it doesn't support throw `UnsupportedBlockError`.
+About 90 blocks: events, motion, say/think, hide/show, size, costumes, layers, control (including stop, clones and PenguinMod's expandable if), operators and math functions, variables, lists and custom blocks. Blocks it doesn't support throw `UnsupportedBlockError`.
 
-Not yet supported: lists, menus, clones, looks/sound/pen, extensions, comments, script positions (scripts are re-stacked in a column), input reporters dragged outside their define, and variables with the same name as an input of the custom block using them.
+Not yet supported: graphic effects, sound, pen, sensing beyond keys and timer, extensions, comments, script positions (scripts are re-stacked in a column), input reporters dragged outside their define, and variables with the same name as an input of the custom block using them.
 
 Normalized on the way through (no effect on how a project runs): `"true"` vs `true` flags, numbers stored as JSON numbers, which shadow type a `%s` input uses, and malformed default lists.
 

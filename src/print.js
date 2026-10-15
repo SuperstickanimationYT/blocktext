@@ -1,4 +1,4 @@
-import { BLOCKS, BUILTIN_NAMES, KEYWORDS, isNonAssociative, procedureSlots } from './spec.js';
+import { BLOCKS, BUILTIN_NAMES, KEYWORDS, LIST_REPORTER_NAME, isNonAssociative, procedureSlots, textName } from './spec.js';
 
 const INDENT = '    ';
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -65,6 +65,12 @@ class Printer {
         if (node.substacks.length === 2) lines.push(`${pad}else:`, ...this.body(node.substacks[1], depth + 1));
         return lines;
       }
+      case 'expandable_if':
+        return node.substacks.flatMap((stack, index) => {
+          const condition = node.conditions[index];
+          const header = !condition ? 'else' : `${index === 0 ? 'if+' : 'elif'} ${this.slot(condition, 'boolean')}`;
+          return [`${pad}${header}:`, ...this.body(stack, depth + 1)];
+        });
       case 'c':
         return [`${pad}${this.header(node)}:`, ...this.body(node.substacks[0], depth + 1)];
       default:
@@ -73,7 +79,8 @@ class Printer {
   }
 
   header(node) {
-    return BLOCKS[node.opcode].params.length === 0 ? BLOCKS[node.opcode].name : this.call(node);
+    const spec = BLOCKS[node.opcode];
+    return spec.params.length === 0 ? textName(spec, node.args) : this.call(node);
   }
 
   call(node) {
@@ -83,16 +90,22 @@ class Printer {
       return `${this.procedureName(node.proccode)}(${args.join(', ')})`;
     }
     const spec = BLOCKS[node.opcode];
-    const args = spec.params.map((param) =>
-      param.kind === 'field' ? JSON.stringify(node.args[param.name]) : this.slot(node.args[param.name], param.slot),
-    );
-    return `${spec.name}(${args.join(', ')})`;
+    const args = spec.params
+      .filter((param) => param.name !== spec.variants?.param)
+      .map((param) =>
+        param.kind === 'field' ? JSON.stringify(node.args[param.name]) : this.slot(node.args[param.name], param.slot),
+      );
+    return `${textName(spec, node.args)}(${args.join(', ')})`;
   }
 
   slot(expr, slot, minPrecedence = 0) {
     switch (expr.kind) {
       case 'empty':
         return '_';
+      case 'checkbox':
+        return String(expr.value);
+      case 'list':
+        return `${LIST_REPORTER_NAME}(${JSON.stringify(expr.name)})`;
       case 'literal':
         return slot !== 'broadcast' && PLAIN_NUMBER.test(expr.value) ? expr.value : JSON.stringify(expr.value);
       case 'variable':
