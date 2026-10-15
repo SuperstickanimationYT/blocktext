@@ -158,7 +158,8 @@ ui.save.addEventListener('click', async () => {
   try {
     for (const item of items.filter(isEdited)) {
       const result = applyText(item.target, item.text, { convertedIds: item.split.convertedIds, stage });
-      Object.assign(item.target, { blocks: result.blocks, variables: result.variables, comments: result.comments });
+      const { blocks, variables, lists, comments } = result;
+      Object.assign(item.target, { blocks, variables, lists, comments });
       stage.broadcasts = result.broadcasts;
       item.split = targetToText(item.target);
       item.savedText = item.text;

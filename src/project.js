@@ -32,9 +32,11 @@ export function applyText(target, text, { convertedIds, stage }) {
   const isConverted = (id) => convertedIds.has(roots.get(id));
   const keptBlocks = Object.fromEntries(Object.entries(target.blocks).filter(([id]) => !isConverted(id)));
 
-  const { blocks, variables, broadcasts } = encode(scripts, {
+  const { blocks, variables, lists, broadcasts } = encode(scripts, {
     variables: target.variables,
     stageVariables: target.isStage ? {} : stage.variables,
+    lists: target.lists,
+    stageLists: target.isStage ? {} : stage.lists,
     broadcasts: stage.broadcasts,
     procedures: knownProcedures(keptBlocks),
     idPrefix: unusedPrefix(keptBlocks),
@@ -47,7 +49,7 @@ export function applyText(target, text, { convertedIds, stage }) {
       comment.blockId && isConverted(comment.blockId) ? { ...comment, blockId: null } : comment,
     ]),
   );
-  return { blocks: { ...keptBlocks, ...blocks }, variables, broadcasts, comments };
+  return { blocks: { ...keptBlocks, ...blocks }, variables, lists, broadcasts, comments };
 }
 
 function rootsOf(blocks) {

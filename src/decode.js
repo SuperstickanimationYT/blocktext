@@ -1,6 +1,7 @@
 import {
   BLOCKS,
   DEFAULT_PROCEDURE_COLOR,
+  LIST_CODE,
   STATEMENT_SHAPES,
   VARIABLE_CODE,
   defaultArgument,
@@ -97,18 +98,34 @@ class Decoder {
     const spec = specFor(block);
     if (spec.shape === 'call') return this.call(block);
     if (spec.shape === 'argument') return this.argument(block);
+    if (spec.shape === 'expandable_if') return this.expandableIf(block);
     const args = {};
     for (const param of spec.params) {
       if (param.kind === 'input') {
-        args[param.name] = this.input(block.inputs[param.name], param.slot);
+        args[param.name] = this.input(block.inputs[param.name], param.slot, param.menu);
       } else if (param.holds === 'variable') {
         args[param.name] = this.variable(block.fields[param.name][0]).name;
       } else {
         args[param.name] = block.fields[param.name][0];
       }
     }
+    if (spec.variants && !Object.hasOwn(spec.variants.names, args[spec.variants.param])) {
+      throw new UnsupportedBlockError(`${block.opcode} ${args[spec.variants.param]}`);
+    }
     const substacks = spec.substacks.map((name) => this.stack(block.inputs[name]?.[1]));
     return { kind: 'block', opcode: block.opcode, args, substacks };
+  }
+
+  expandableIf(block) {
+    const branches = Number(block.mutation.branches);
+    const endsInElse = isTrue(block.mutation['ends-in-else']);
+    const conditionCount = branches - (endsInElse ? 1 : 0);
+    if (!(conditionCount >= 1)) throw new UnsupportedBlockError('expandable if without a condition');
+    const conditions = Array.from({ length: conditionCount }, (_, index) =>
+      this.input(block.inputs[`BOOL${index + 1}`], 'boolean'),
+    );
+    const substacks = Array.from({ length: branches }, (_, index) => this.stack(block.inputs[`SUBSTACK${index + 1}`]?.[1]));
+    return { kind: 'block', opcode: block.opcode, conditions, endsInElse, substacks };
   }
 
   call(block) {
@@ -129,17 +146,20 @@ class Decoder {
     return { kind: 'argument', name };
   }
 
-  input(input, slot) {
+  input(input, slot, menu) {
     if (!input || input[1] === null) return { kind: 'empty' };
     const [state, value] = input;
-    if (state === INPUT_SHADOW_ONLY && slot === 'boolean') throw new UnsupportedBlockError('plain value in a true/false slot');
+    if (state === INPUT_SHADOW_ONLY && slot === 'boolean') return this.checkbox(value);
+    if (state === INPUT_SHADOW_ONLY && menu) return this.menuValue(value, menu);
     if (state === INPUT_SHADOW_ONLY) return { kind: 'literal', value: this.primitiveText(value) };
     if (Array.isArray(value)) {
-      if (value[0] !== VARIABLE_CODE) throw new UnsupportedBlockError('list reporter');
+      if (value[0] === LIST_CODE) return { kind: 'list', name: value[1] };
+      if (value[0] !== VARIABLE_CODE) throw new UnsupportedBlockError(`reporter type ${value[0]}`);
       return this.variable(value[1]);
     }
     const block = this.blocks[value];
     if (block.opcode === 'data_variable') return this.variable(block.fields.VARIABLE[0]);
+    if (block.opcode === 'data_listcontents') return { kind: 'list', name: block.fields.LIST[0] };
     return this.block(block);
   }
 
@@ -148,6 +168,18 @@ class Decoder {
       throw new UnsupportedBlockError('variable with the same name as a custom block input');
     }
     return { kind: 'variable', name };
+  }
+
+  checkbox(value) {
+    const shadow = typeof value === 'string' && this.blocks[value];
+    if (shadow?.opcode !== 'checkbox') throw new UnsupportedBlockError('plain value in a true/false slot');
+    return { kind: 'checkbox', value: shadow.fields.CHECKBOX[0] === 'TRUE' };
+  }
+
+  menuValue(value, menu) {
+    const shadow = typeof value === 'string' && this.blocks[value];
+    if (shadow?.opcode !== menu.opcode) throw new UnsupportedBlockError(`menu ${shadow?.opcode ?? 'value'}`);
+    return { kind: 'literal', value: String(shadow.fields[menu.field][0]) };
   }
 
   primitiveText(value) {
